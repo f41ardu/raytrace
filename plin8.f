@@ -1,0 +1,422 @@
+      SUBROUTINE CGECO(A,LDA,N,IPVT,RCOND,Z)
+      INTEGER LDA,N,IPVT(1)
+      COMPLEX A(LDA,1),Z(1)
+      REAL RCOND
+C
+C     CGECO FACTORS A COMPLEX MATRIX BY GAUSSIAN ELIMINATION
+C     AND ESTIMATES THE CONDITION OF THE MATRIX.
+C
+C     IF  RCOND  IS NOT NEEDED, CGEFA IS SLIGHTLY FASTER.
+C     TO SOLVE  A*X = B , FOLLOW CGECO BY CGESL.
+C     TO COMPUTE  INVERSE(A)*C , FOLLOW CGECO BY CGESL.
+C     TO COMPUTE  DETERMINANT(A) , FOLLOW CGECO BY CGEDI.
+C     TO COMPUTE  INVERSE(A) , FOLLOW CGECO BY CGEDI.
+C
+C     ON ENTRY
+C
+C        A       COMPLEX(LDA, N)
+C                THE MATRIX TO BE FACTORED.
+C
+C        LDA     INTEGER
+C                THE LEADING DIMENSION OF THE ARRAY  A .
+C
+C        N       INTEGER
+C                THE ORDER OF THE MATRIX  A .
+C
+C     ON RETURN
+C
+C        A       AN UPPER TRIANGULAR MATRIX AND THE MULTIPLIERS
+C                WHICH WERE USED TO OBTAIN IT.
+C                THE FACTORIZATION CAN BE WRITTEN  A = L*U  WHERE
+C                L  IS A PRODUCT OF PERMUTATION AND UNIT LOWER
+C                TRIANGULAR MATRICES AND  U  IS UPPER TRIANGULAR.
+C
+C        IPVT    INTEGER(N)
+C                AN INTEGER VECTOR OF PIVOT INDICES.
+C
+C        RCOND   REAL
+C                AN ESTIMATE OF THE RECIPROCAL CONDITION OF  A .
+C                FOR THE SYSTEM  A*X = B , RELATIVE PERTURBATIONS
+C                IN  A  AND  B  OF SIZE  EPSILON  MAY CAUSE
+C                RELATIVE PERTURBATIONS IN  X  OF SIZE  EPSILON/RCOND .
+C                IF  RCOND  IS SO SMALL THAT THE LOGICAL EXPRESSION
+C                           1.0 + RCOND .EQ. 1.0
+C                IS TRUE, THEN  A  MAY BE SINGULAR TO WORKING
+C                PRECISION.  IN PARTICULAR,  RCOND  IS ZERO  IF
+C                EXACT SINGULARITY IS DETECTED OR THE ESTIMATE
+C                UNDERFLOWS.
+C
+C        Z       COMPLEX(N)
+C                A WORK VECTOR WHOSE CONTENTS ARE USUALLY UNIMPORTANT.
+C                IF  A  IS CLOSE TO A SINGULAR MATRIX, THEN  Z  IS
+C                AN APPROXIMATE NULL VECTOR IN THE SENSE THAT
+C                NORM(A*Z) = RCOND*NORM(A)*NORM(Z) .
+C
+C     LINPACK. THIS VERSION DATED 08/14/78 .
+C     CLEVE MOLER, UNIVERSITY OF NEW MEXICO, ARGONNE NATIONAL LAB.
+C
+C     SUBROUTINES AND FUNCTIONS
+C
+C     LINPACK CGEFA
+C     BLAS CAXPY,CDOTC,CSSCAL,SCASUM
+C     FORTRAN ABS,AIMAG,AMAX1,CMPLX,CONJG,REAL
+C
+C     INTERNAL VARIABLES
+C
+      COMPLEX CDOTC,EK,T,WK,WKM
+      REAL ANORM,S,SCASUM,SM,YNORM
+      INTEGER INFO,J,K,KB,KP1,L
+C
+      COMPLEX ZDUM,ZDUM1,ZDUM2,CSIGN1
+      REAL CABS1
+      CABS1(ZDUM) = ABS(REAL(ZDUM)) + ABS(AIMAG(ZDUM))
+      CSIGN1(ZDUM1,ZDUM2) = CABS1(ZDUM1)*(ZDUM2/CABS1(ZDUM2))
+C
+C     COMPUTE 1-NORM OF A
+C
+      ANORM = 0.0E0
+      DO 10 J = 1, N
+         ANORM = AMAX1(ANORM,SCASUM(N,A(1,J),1))
+   10 CONTINUE
+C
+C     FACTOR
+C
+      CALL CGEFA(A,LDA,N,IPVT,INFO)
+C
+C     RCOND = 1/(NORM(A)*(ESTIMATE OF NORM(INVERSE(A)))) .
+C     ESTIMATE = NORM(Z)/NORM(Y) WHERE  A*Z = Y  AND  CTRANS(A)*Y = E .
+C     CTRANS(A)  IS THE CONJUGATE TRANSPOSE OF A .
+C     THE COMPONENTS OF  E  ARE CHOSEN TO CAUSE MAXIMUM LOCAL
+C     GROWTH IN THE ELEMENTS OF W  WHERE  CTRANS(U)*W = E .
+C     THE VECTORS ARE FREQUENTLY RESCALED TO AVOID OVERFLOW.
+C
+C     SOLVE CTRANS(U)*W = E
+C
+      EK = (1.0E0,0.0E0)
+      DO 20 J = 1, N
+         Z(J) = (0.0E0,0.0E0)
+   20 CONTINUE
+      DO 100 K = 1, N
+         IF (CABS1(Z(K)) .NE. 0.0E0) EK = CSIGN1(EK,-Z(K))
+         IF (CABS1(EK-Z(K)) .LE. CABS1(A(K,K))) GO TO 30
+            S = CABS1(A(K,K))/CABS1(EK-Z(K))
+            CALL CSSCAL(N,S,Z,1)
+            EK = CMPLX(S,0.0E0)*EK
+   30    CONTINUE
+         WK = EK - Z(K)
+         WKM = -EK - Z(K)
+         S = CABS1(WK)
+         SM = CABS1(WKM)
+         IF (CABS1(A(K,K)) .EQ. 0.0E0) GO TO 40
+            WK = WK/CONJG(A(K,K))
+            WKM = WKM/CONJG(A(K,K))
+         GO TO 50
+   40    CONTINUE
+            WK = (1.0E0,0.0E0)
+            WKM = (1.0E0,0.0E0)
+   50    CONTINUE
+         KP1 = K + 1
+         IF (KP1 .GT. N) GO TO 90
+            DO 60 J = KP1, N
+               SM = SM + CABS1(Z(J)+WKM*CONJG(A(K,J)))
+               Z(J) = Z(J) + WK*CONJG(A(K,J))
+               S = S + CABS1(Z(J))
+   60       CONTINUE
+            IF (S .GE. SM) GO TO 80
+               T = WKM - WK
+               WK = WKM
+               DO 70 J = KP1, N
+                  Z(J) = Z(J) + T*CONJG(A(K,J))
+   70          CONTINUE
+   80       CONTINUE
+   90    CONTINUE
+         Z(K) = WK
+  100 CONTINUE
+      S = 1.0E0/SCASUM(N,Z,1)
+      CALL CSSCAL(N,S,Z,1)
+C
+C     SOLVE CTRANS(L)*Y = W
+C
+      DO 120 KB = 1, N
+         K = N + 1 - KB
+         IF (K .LT. N) Z(K) = Z(K) + CDOTC(N-K,A(K+1,K),1,Z(K+1),1)
+         IF (CABS1(Z(K)) .LE. 1.0E0) GO TO 110
+            S = 1.0E0/CABS1(Z(K))
+            CALL CSSCAL(N,S,Z,1)
+  110    CONTINUE
+         L = IPVT(K)
+         T = Z(L)
+         Z(L) = Z(K)
+         Z(K) = T
+  120 CONTINUE
+      S = 1.0E0/SCASUM(N,Z,1)
+      CALL CSSCAL(N,S,Z,1)
+C
+      YNORM = 1.0E0
+C
+C     SOLVE L*V = Y
+C
+      DO 140 K = 1, N
+         L = IPVT(K)
+         T = Z(L)
+         Z(L) = Z(K)
+         Z(K) = T
+         IF (K .LT. N) CALL CAXPY(N-K,T,A(K+1,K),1,Z(K+1),1)
+         IF (CABS1(Z(K)) .LE. 1.0E0) GO TO 130
+            S = 1.0E0/CABS1(Z(K))
+            CALL CSSCAL(N,S,Z,1)
+            YNORM = S*YNORM
+  130    CONTINUE
+  140 CONTINUE
+      S = 1.0E0/SCASUM(N,Z,1)
+      CALL CSSCAL(N,S,Z,1)
+      YNORM = S*YNORM
+C
+C     SOLVE  U*Z = V
+C
+      DO 160 KB = 1, N
+         K = N + 1 - KB
+         IF (CABS1(Z(K)) .LE. CABS1(A(K,K))) GO TO 150
+            S = CABS1(A(K,K))/CABS1(Z(K))
+            CALL CSSCAL(N,S,Z,1)
+            YNORM = S*YNORM
+  150    CONTINUE
+         IF (CABS1(A(K,K)) .NE. 0.0E0) Z(K) = Z(K)/A(K,K)
+         IF (CABS1(A(K,K)) .EQ. 0.0E0) Z(K) = (1.0E0,0.0E0)
+         T = -Z(K)
+         CALL CAXPY(K-1,T,A(1,K),1,Z(1),1)
+  160 CONTINUE
+C     MAKE ZNORM = 1.0
+      S = 1.0E0/SCASUM(N,Z,1)
+      CALL CSSCAL(N,S,Z,1)
+      YNORM = S*YNORM
+C
+      IF (ANORM .NE. 0.0E0) RCOND = YNORM/ANORM
+      IF (ANORM .EQ. 0.0E0) RCOND = 0.0E0
+      RETURN
+      END
+      SUBROUTINE CGEFA(A,LDA,N,IPVT,INFO)
+      INTEGER LDA,N,IPVT(1),INFO
+      COMPLEX A(LDA,1)
+C
+C     CGEFA FACTORS A COMPLEX MATRIX BY GAUSSIAN ELIMINATION.
+C
+C     CGEFA IS USUALLY CALLED BY CGECO, BUT IT CAN BE CALLED
+C     DIRECTLY WITH A SAVING IN TIME IF  RCOND  IS NOT NEEDED.
+C     (TIME FOR CGECO) = (1 + 9/N)*(TIME FOR CGEFA) .
+C
+C     ON ENTRY
+C
+C        A       COMPLEX(LDA, N)
+C                THE MATRIX TO BE FACTORED.
+C
+C        LDA     INTEGER
+C                THE LEADING DIMENSION OF THE ARRAY  A .
+C
+C        N       INTEGER
+C                THE ORDER OF THE MATRIX  A .
+C
+C     ON RETURN
+C
+C        A       AN UPPER TRIANGULAR MATRIX AND THE MULTIPLIERS
+C                WHICH WERE USED TO OBTAIN IT.
+C                THE FACTORIZATION CAN BE WRITTEN  A = L*U  WHERE
+C                L  IS A PRODUCT OF PERMUTATION AND UNIT LOWER
+C                TRIANGULAR MATRICES AND  U  IS UPPER TRIANGULAR.
+C
+C        IPVT    INTEGER(N)
+C                AN INTEGER VECTOR OF PIVOT INDICES.
+C
+C        INFO    INTEGER
+C                = 0  NORMAL VALUE.
+C                = K  IF  U(K,K) .EQ. 0.0 .  THIS IS NOT AN ERROR
+C                     CONDITION FOR THIS SUBROUTINE, BUT IT DOES
+C                     INDICATE THAT CGESL OR CGEDI WILL DIVIDE BY ZERO
+C                     IF CALLED.  USE  RCOND  IN CGECO FOR A RELIABLE
+C                     INDICATION OF SINGULARITY.
+C
+C     LINPACK. THIS VERSION DATED 08/14/78 .
+C     CLEVE MOLER, UNIVERSITY OF NEW MEXICO, ARGONNE NATIONAL LAB.
+C
+C     SUBROUTINES AND FUNCTIONS
+C
+C     BLAS CAXPY,CSCAL,ICAMAX
+C     FORTRAN ABS,AIMAG,REAL
+C
+C     INTERNAL VARIABLES
+C
+      COMPLEX T
+      INTEGER ICAMAX,J,K,KP1,L,NM1
+C
+      COMPLEX ZDUM
+      REAL CABS1
+      CABS1(ZDUM) = ABS(REAL(ZDUM)) + ABS(AIMAG(ZDUM))
+C
+C     GAUSSIAN ELIMINATION WITH PARTIAL PIVOTING
+C
+      INFO = 0
+      NM1 = N - 1
+      IF (NM1 .LT. 1) GO TO 70
+      DO 60 K = 1, NM1
+         KP1 = K + 1
+C
+C        FIND L = PIVOT INDEX
+C
+         L = ICAMAX(N-K+1,A(K,K),1) + K - 1
+         IPVT(K) = L
+C
+C        ZERO PIVOT IMPLIES THIS COLUMN ALREADY TRIANGULARIZED
+C
+         IF (CABS1(A(L,K)) .EQ. 0.0E0) GO TO 40
+C
+C           INTERCHANGE IF NECESSARY
+C
+            IF (L .EQ. K) GO TO 10
+               T = A(L,K)
+               A(L,K) = A(K,K)
+               A(K,K) = T
+   10       CONTINUE
+C
+C           COMPUTE MULTIPLIERS
+C
+            T = -(1.0E0,0.0E0)/A(K,K)
+            CALL CSCAL(N-K,T,A(K+1,K),1)
+C
+C           ROW ELIMINATION WITH COLUMN INDEXING
+C
+            DO 30 J = KP1, N
+               T = A(L,J)
+               IF (L .EQ. K) GO TO 20
+                  A(L,J) = A(K,J)
+                  A(K,J) = T
+   20          CONTINUE
+               CALL CAXPY(N-K,T,A(K+1,K),1,A(K+1,J),1)
+   30       CONTINUE
+         GO TO 50
+   40    CONTINUE
+            INFO = K
+   50    CONTINUE
+   60 CONTINUE
+   70 CONTINUE
+      IPVT(N) = N
+      IF (CABS1(A(N,N)) .EQ. 0.0E0) INFO = N
+      RETURN
+      END
+      SUBROUTINE CGESL(A,LDA,N,IPVT,B,JOB)
+      INTEGER LDA,N,IPVT(1),JOB
+      COMPLEX A(LDA,1),B(1)
+C
+C     CGESL SOLVES THE COMPLEX SYSTEM
+C     A * X = B  OR  CTRANS(A) * X = B
+C     USING THE FACTORS COMPUTED BY CGECO OR CGEFA.
+C
+C     ON ENTRY
+C
+C        A       COMPLEX(LDA, N)
+C                THE OUTPUT FROM CGECO OR CGEFA.
+C
+C        LDA     INTEGER
+C                THE LEADING DIMENSION OF THE ARRAY  A .
+C
+C        N       INTEGER
+C                THE ORDER OF THE MATRIX  A .
+C
+C        IPVT    INTEGER(N)
+C                THE PIVOT VECTOR FROM CGECO OR CGEFA.
+C
+C        B       COMPLEX(N)
+C                THE RIGHT HAND SIDE VECTOR.
+C
+C        JOB     INTEGER
+C                = 0         TO SOLVE  A*X = B ,
+C                = NONZERO   TO SOLVE  CTRANS(A)*X = B  WHERE
+C                            CTRANS(A)  IS THE CONJUGATE TRANSPOSE.
+C
+C     ON RETURN
+C
+C        B       THE SOLUTION VECTOR  X .
+C
+C     ERROR CONDITION
+C
+C        A DIVISION BY ZERO WILL OCCUR IF THE INPUT FACTOR CONTAINS A
+C        ZERO ON THE DIAGONAL.  TECHNICALLY THIS INDICATES SINGULARITY
+C        BUT IT IS OFTEN CAUSED BY IMPROPER ARGUMENTS OR IMPROPER
+C        SETTING OF LDA .  IT WILL NOT OCCUR IF THE SUBROUTINES ARE
+C        CALLED CORRECTLY AND IF CGECO HAS SET RCOND .GT. 0.0
+C        OR CGEFA HAS SET INFO .EQ. 0 .
+C
+C     TO COMPUTE  INVERSE(A) * C  WHERE  C  IS A MATRIX
+C     WITH  P  COLUMNS
+C           CALL CGECO(A,LDA,N,IPVT,RCOND,Z)
+C           IF (RCOND IS TOO SMALL) GO TO ...
+C           DO 10 J = 1, P
+C              CALL CGESL(A,LDA,N,IPVT,C(1,J),0)
+C        10 CONTINUE
+C
+C     LINPACK. THIS VERSION DATED 08/14/78 .
+C     CLEVE MOLER, UNIVERSITY OF NEW MEXICO, ARGONNE NATIONAL LAB.
+C
+C     SUBROUTINES AND FUNCTIONS
+C
+C     BLAS CAXPY,CDOTC
+C     FORTRAN CONJG
+C
+C     INTERNAL VARIABLES
+C
+      COMPLEX CDOTC,T
+      INTEGER K,KB,L,NM1
+C
+      NM1 = N - 1
+      IF (JOB .NE. 0) GO TO 50
+C
+C        JOB = 0 , SOLVE  A * X = B
+C        FIRST SOLVE  L*Y = B
+C
+         IF (NM1 .LT. 1) GO TO 30
+         DO 20 K = 1, NM1
+            L = IPVT(K)
+            T = B(L)
+            IF (L .EQ. K) GO TO 10
+               B(L) = B(K)
+               B(K) = T
+   10       CONTINUE
+            CALL CAXPY(N-K,T,A(K+1,K),1,B(K+1),1)
+   20    CONTINUE
+   30    CONTINUE
+C
+C        NOW SOLVE  U*X = Y
+C
+         DO 40 KB = 1, N
+            K = N + 1 - KB
+            B(K) = B(K)/A(K,K)
+            T = -B(K)
+            CALL CAXPY(K-1,T,A(1,K),1,B(1),1)
+   40    CONTINUE
+      GO TO 100
+   50 CONTINUE
+C
+C        JOB = NONZERO, SOLVE  CTRANS(A) * X = B
+C        FIRST SOLVE  CTRANS(U)*Y = B
+C
+         DO 60 K = 1, N
+            T = CDOTC(K-1,A(1,K),1,B(1),1)
+            B(K) = (B(K) - T)/CONJG(A(K,K))
+   60    CONTINUE
+C
+C        NOW SOLVE CTRANS(L)*X = Y
+C
+         IF (NM1 .LT. 1) GO TO 90
+         DO 80 KB = 1, NM1
+            K = N - KB
+            B(K) = B(K) + CDOTC(N-K,A(K+1,K),1,B(K+1),1)
+            L = IPVT(K)
+            IF (L .EQ. K) GO TO 70
+               T = B(L)
+               B(L) = B(K)
+               B(K) = T
+   70       CONTINUE
+   80    CONTINUE
+   90    CONTINUE
+  100 CONTINUE
+      RETURN
+      END

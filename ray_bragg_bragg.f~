@@ -1,0 +1,562 @@
+      program raytrace
+c     interferometer 
+c     raytracing mit einen laue - bragg Monochromator
+c     Si 220 mit der Geometrie vom Faecher F2
+c     Dicke Laue = 700 um
+c           Bragg = obsolet
+c     Idee: ausgehend von einem Punkt S auf einer detektor- oder 
+c           filmebenen wird ein gerader strahl bis in die quelle 
+c           ueber alle spiegel des interferometers zurueckverfolgt
+c           und dann der phasenunterschied zwischen den strahlen 
+c           ueber beide wege verglichen
+c     Implementation erfolgt aber genau umgekehrt
+c     von der Quelle -> Detektor !
+c     1. Iteration  geometrische Naeherung
+c        d.h. keine dynamischen reflexionen keine eindringtiefen 
+c             etc. 
+c     ok 
+c     2. Iteration implementiert (dynamische Theorie) 
+c     ok 
+c        fuer Laue und Bragg Reflexionen erweitert
+c     ok
+c     3. Iteration Einbau weiterer Kristalle        
+c
+c        es werden folgende unterprogramme benoetigt 
+c        siehe raytools.f
+c        
+c        beschreibung der daten
+c
+c        ein spiegel oder eine blende wird durch folgende 
+c        felder definiert ein aufpunkt und 2 richtungsvektoren
+c
+c        bi_ : Blenden
+c        bi_x(3) Aufpunkt der blende i 
+c        bi_u(3) Richtungsvektor 1 des biegers i
+c        bi_v(3) Richtungsvektor 2 des biegers i
+c        bi_n(3) Orientierungsvektor der oberflaeche n = u x v
+c
+c        si_ : Spiegel
+c        si_x(3) Aufpunkt des spiegels i 
+c        si_u(3) Richtungsvektor 1 des spiegels i
+c        si_v(3) Richtungsvektor 2 des spiegels i
+c        si_n(3) && si_net(3) Orientierungsvektor der Netzebene
+c        si_surf(3) Orientierungsvektor der Oberlaeche n = u x v
+c        damit koennen  auch asymmetrische Kristalle beschreiben werden
+c
+c        ein strahl wird beschrieben durch einen 
+c        aufpunkt und durch eine richtung 
+c        
+c        s(3) : aufpunkt 
+c        r(3) : richtungsvektor
+c
+c        Autor: Thomas Rautenstrauch 
+c        Version: 0.1
+c
+c
+        implicit none
+c
+        include 'param.inc'
+c
+        integer i,j,l
+        integer hit_it,yes,no
+        integer number_hits
+        integer l_ix,l_ix_det
+        integer ilaue,ibragg
+        real pi,dtp,ptd
+        real t,winkel,m(3,3),xd(3)
+        real t_surf,t_net,m_surf(3,3),m_net(3,3)
+        real dp,dpp
+c strahlen
+        real strahl_p0(3),strahl_a(3)
+        real Intensitaet,Sum_Intensitaet
+        real neu0_p0(3),neu0_a(3)  
+        real neu1_p0(3),neu1_a(3)
+        real neu2_p0(3),neu2_a(3)  
+        real neu3_p0(3),neu3_a(3)  
+        real neu4_p0(3),neu4_a(3)
+        real neu5_p0(3),neu5_a(3)
+        real lambda,lambda_x
+c blenden
+        real b1_px(3),b1_v(3),b1_u(3),b1_n(3)
+        real b2_px(3),b2_v(3),b2_u(3),b2_n(3)
+        real b3_px(3),b3_v(3),b3_u(3),b3_n(3)
+        real b4_px(3),b4_v(3),b4_u(3),b4_n(3)
+c spiegel
+        real s1_px(3),s1_v(3),s1_u(3),s1_n(3),s1_net(3),s1_surf(3)
+        real s2_px(3),s2_v(3),s2_u(3),s2_n(3)
+        real bragg
+c
+        real s,rdummy
+        real cut,mc_trans
+        parameter(yes=1,no=0)
+c function
+        real flaechen_schnitt,flaechen_lb,reflex
+        real ran3  
+c
+c --- files
+c
+        open(13,'/home/thomas_old/fortran/raytrace/m1.dat')
+        open(12,'/home/thomas_old/fortran/raytrace/m2.dat')
+        open(14,'/home/thomas_old/fortran/raytrace/b1.dat')
+        open(15,'/home/thomas_old/fortran/raytrace/b2.dat')
+        open(16,'/home/thomas_old/fortran/raytrace/b3.dat')
+        open(17,'/home/thomas_old/fortran/raytrace/b4.dat')
+c        open(18,'/home/thomas_old/fortran/raytrace/hit.dat')
+c        open(19,'/home/thomas_old/fortran/raytrace/hit1.dat')
+c        open(20,'/home/thomas_old/fortran/raytrace/hitlaue.dat')
+c        open(21,'/home/thomas_old/fortran/raytrace/hitbragg.dat')
+        open(22,'/home/thomas_old/fortran/raytrace/hitb4.dat')		               
+         open(30,file='/home/thomas_old/fortran/raytrace/rock_temp.dat')
+c
+c --- formate
+c
+111     format(3f12.6,i10)
+c
+c --- konstanten
+c
+        pi = 4.0*atan(1.0)
+        dtp = pi/180.0
+        ptd = 180.0/pi
+c
+c --- init fuer reflexionsberechnung
+c
+        ilaue = 1
+    	ibragg = 2
+        rdummy=ran3(-7)
+c 
+        call fspline(12349./1.66289,1)
+c
+c
+c--- Geometrie 
+c
+c  translation 1. blende
+c
+        xd(x) = 8900. 
+        xd(y) = 0.
+        xd(z) = 0.
+c
+c  erzeugen der 1.blende 
+c
+        b1_px(x) = -38.5 
+        b1_px(y) = -17.0
+        b1_px(z) = 0.
+c
+        b1_v(x) = 77. 
+        b1_v(y) = 0.
+        b1_v(z) = 0.
+c
+        b1_u(x) = 0.
+        b1_u(y) = 34.
+        b1_u(z) = 0.
+        t = 90.*dtp
+        call matrix(0.0,1.0,0.0,t,m)
+c 
+c  drehen der 1. blende  
+c
+        call vektor_kreuzprodukt(b1_u,b1_v,b1_n)
+        call dreh(m,b1_px,b1_px)
+        call dreh(m,b1_v,b1_v)        
+        call dreh(m,b1_u,b1_u)
+        call dreh(m,b1_n,b1_n)
+c 
+c  translation des aufpunkts
+c
+        call trans(xd,b1_px,b1_px)
+c und Kontrollausgabe fuer einen Gnu 3-D PLot
+        write(14,*) b1_px(1),b1_px(2),b1_px(3)
+c        
+        write(14,*) b1_px(1)+b1_v(1),b1_px(2)+b1_v(2),
+     .              b1_px(3)+b1_v(3)    
+        write(14,*) b1_px(1)+b1_v(1)+b1_u(1),b1_px(2)+b1_v(2)+
+     .              b1_u(2),b1_px(3)+b1_v(3)+b1_u(3)    
+        write(14,*) b1_px(1)+b1_u(1),b1_px(2)+b1_u(2),
+     .              b1_px(3)+b1_u(3)    
+c     
+        write(14,*) b1_px(1),b1_px(2),b1_px(3)
+
+        close(14)
+c
+c  translation 2. blende
+c
+        xd(x) = 18208. 
+        xd(y) = 0.
+        xd(z) = 0.
+c
+c  erzeugen der 2.blende 
+c
+        b2_px(x) = -7.5
+        b2_px(y) = -12.
+        b2_px(z) =  0.
+c
+        b2_v(x) = 15.
+        b2_v(y) = 0.
+        b2_v(z) = 0.
+c
+        b2_u(x) = 0.
+        b2_u(y) = 24.
+        b2_u(z) = 0.
+        t = 90.*dtp
+        call matrix(0.0,1.0,0.0,t,m)
+c 
+c  drehen der 2. blende  
+c
+        call vektor_kreuzprodukt(b2_u,b2_v,b2_n)
+        call dreh(m,b2_px,b2_px)
+        call dreh(m,b2_v,b2_v)        
+        call dreh(m,b2_u,b2_u)
+        call dreh(m,b2_n,b2_n)
+c 
+c  translation des aufpunkts
+c
+        call trans(xd,b2_px,b2_px)
+c und Kontrollausgabe fuer einen Gnu 3-D PLot
+        write(15,*) b2_px(1),b2_px(2),b2_px(3)
+c        
+        write(15,*) b2_px(1)+b2_v(1),b2_px(2)+b2_v(2),
+     .              b2_px(3)+b2_v(3)    
+        write(15,*) b2_px(1)+b2_v(1)+b2_u(1),b2_px(2)+b2_v(2)+
+     .              b2_u(2),b2_px(3)+b2_v(3)+b2_u(3)    
+        write(15,*) b2_px(1)+b2_u(1),b2_px(2)+b2_u(2),
+     .              b2_px(3)+b2_u(3)    
+c     
+        write(15,*) b2_px(1),b2_px(2),b2_px(3)
+
+        close(15)
+c
+c  translation 3. blende 
+c  Die Parameter der Blende 3 sind von der experimentelle Einstellung 
+c  abhaengig.
+        xd(x) = 29078. 
+        xd(y) = 0.
+        xd(z) = 0.
+c
+c  erzeugen der 3.blende 
+c
+        b3_px(x) = -1
+        b3_px(y) = -5.
+        b3_px(z) =  0.
+c
+        b3_v(x) = 2.
+        b3_v(y) = 0.
+        b3_v(z) = 0.
+c
+        b3_u(x) = 0.
+        b3_u(y) = 10.
+        b3_u(z) = 0.
+        t = 90.*dtp
+        call matrix(0.0,1.0,0.0,t,m)
+c 
+c  drehen der 3. blende  
+c
+        call vektor_kreuzprodukt(b3_u,b3_v,b3_n)
+        call dreh(m,b3_px,b3_px)
+        call dreh(m,b3_v,b3_v)        
+        call dreh(m,b3_u,b3_u)
+        call dreh(m,b3_n,b3_n)
+c 
+c  translation des aufpunkts
+c
+        call trans(xd,b3_px,b3_px)
+c und Kontrollausgabe fuer einen Gnu 3-D PLot
+        write(16,*) b3_px(1),b3_px(2),b3_px(3)
+c        
+        write(16,*) b3_px(1)+b3_v(1),b3_px(2)+b3_v(2),
+     .              b3_px(3)+b3_v(3)    
+        write(16,*) b3_px(1)+b3_v(1)+b3_u(1),b3_px(2)+b3_v(2)+
+     .              b3_u(2),b3_px(3)+b3_v(3)+b3_u(3)    
+        write(16,*) b3_px(1)+b3_u(1),b3_px(2)+b3_u(2),
+     .              b3_px(3)+b3_u(3)    
+c     
+        write(16,*) b3_px(1),b3_px(2),b3_px(3)
+
+        close(16)
+c  translation 4. blende
+c  Die Parameter der Blende 4 sind von der experimentelle Einstellung
+c  abhaengig.
+        xd(x) = 29078.+380.
+        xd(y) = 0.
+        xd(z) = 20.
+
+c
+c  erzeugen der 4.blende 
+c
+        b4_px(x) = -1
+        b4_px(y) = -5.
+        b4_px(z) =  0.
+c
+        b4_v(x) = 2.
+        b4_v(y) = 0.
+        b3_v(z) = 0.
+c
+        b4_u(x) = 0.
+        b4_u(y) = 10.
+        b4_u(z) = 0.
+        t = 90.*dtp
+        call matrix(0.0,1.0,0.0,t,m)
+c 
+c  drehen der 4. blende  
+c
+        call vektor_kreuzprodukt(b4_u,b4_v,b4_n)
+        call dreh(m,b4_px,b4_px)
+        call dreh(m,b4_v,b4_v)        
+        call dreh(m,b4_u,b4_u)
+        call dreh(m,b4_n,b4_n)
+c 
+c  translation des aufpunkts
+c
+        call trans(xd,b4_px,b4_px)
+c und Kontrollausgabe fuer einen Gnu 3-D PLot
+        write(17,*) b4_px(1),b4_px(2),b4_px(3)
+c        
+        write(17,*) b4_px(1)+b4_v(1),b4_px(2)+b4_v(2),
+     .              b4_px(3)+b4_v(3)    
+        write(17,*) b4_px(1)+b4_v(1)+b4_u(1),b4_px(2)+b4_v(2)+
+     .              b4_u(2),b4_px(3)+b4_v(3)+b4_u(3)    
+        write(17,*) b4_px(1)+b4_u(1),b4_px(2)+b4_u(2),
+     .              b4_px(3)+b4_u(3)    
+c     
+        write(17,*) b4_px(1),b4_px(2),b4_px(3)
+
+        close(17)
+
+c
+c --- Monochromatoroffset cut 
+c     Laue - Bragg Mono 
+        cut = 0.
+c
+c drehwinkel + drehmatrix  des ersten Kristalls
+c
+        bragg = 25.6633364 !Si 220 bei 1.66289 Angstr. ohne Brechungkorrektur
+        t_surf =(bragg)*dtp
+        t_net  =(bragg+270.)*dtp
+        call matrix(0.0,1.0,0.0,t_surf,m_surf)
+        call matrix(0.0,1.0,0.0,t_net,m_net)
+c
+c  translation 1. Kristall
+c
+        xd(x) = 29278. 
+        xd(y) = 0.
+        xd(z) = 10.
+c
+c  erzeugen des 1. Spiegels (Laue)
+c
+        s1_px(x) = 0.
+        s1_px(y) = -5. 
+        s1_px(z) = -20.
+c
+        s1_v(x) = 0.
+        s1_v(y) = 10.
+        s1_v(z) = 0.
+c
+        s1_u(x) = 0.
+        s1_u(y) = 0.
+        s1_u(z) = 20.
+c 
+c  drehen des 1. kristall  
+c
+        call vektor_kreuzprodukt(s1_u,s1_v,s1_n)
+        
+        call dreh(m_surf,s1_px,s1_px)
+        call dreh(m_surf,s1_v,s1_v)        
+        call dreh(m_surf,s1_u,s1_u)
+        call dreh(m_net,s1_n,s1_n)
+c 
+c  translation des aufpunkts
+c
+        call trans(xd,s1_px,s1_px)
+c
+c und Kontrollausgabe fuer einen Gnu 3-D PLot
+        write(13,*) s1_px(1),s1_px(2),s1_px(3)
+c        
+        write(13,*) s1_px(1)+s1_v(1),s1_px(2)+s1_v(2),
+     .              s1_px(3)+s1_v(3)    
+        write(13,*) s1_px(1)+s1_v(1)+s1_u(1),s1_px(2)+s1_v(2)+
+     .              s1_u(2),s1_px(3)+s1_v(3)+s1_u(3)    
+        write(13,*) s1_px(1)+s1_u(1),s1_px(2)+s1_u(2),
+     .              s1_px(3)+s1_u(3)    
+c     
+        write(13,*) s1_px(1),s1_px(2),s1_px(3)
+
+
+c
+c
+c  translation 2. Kristall
+c
+        xd(x) = 29278. 
+        xd(y) = 0.
+        xd(z) = 10.
+c
+c  erzeugen des 2. 
+c
+        s2_px(x) = 0.
+        s2_px(y) = -5.
+        s2_px(z) = 0.
+c         
+        s2_v(x) = 50.
+        s2_v(y) = 0.
+        s2_v(z) = 0.
+c
+        s2_u(x) = 0.
+        s2_u(y) = 10.
+        s2_u(z) = 0.
+c 
+c  drehen des 2. kristalls 
+        t_surf = (bragg)*dtp
+        t_net = (180.+bragg)*dtp
+        call matrix(0.0,1.0,0.0,t_surf,m_surf)
+        call matrix(0.0,1.0,0.0,t_net,m_net)
+c
+        call vektor_kreuzprodukt(s2_u,s2_v,s2_n)
+        call dreh(m_surf,s2_px,s2_px)
+        call dreh(m_surf,s2_v,s2_v)        
+        call dreh(m_surf,s2_u,s2_u)
+        call dreh(m_net,s2_n,s2_n)
+c 
+c  translation des aufpunkts
+c
+        call trans(xd,s2_px,s2_px)
+c
+c
+c und Kontrollausgabe fuer einen Gnu 3-D PLot
+c
+        write(12,*) s2_px(1),s2_px(2),s2_px(3)
+c                
+        write(12,*) s2_px(1)+s2_v(1),s2_px(2)+s2_v(2),
+     .              s2_px(3)+s2_v(3)    
+        write(12,*) s2_px(1)+s2_v(1)+s2_u(1),s2_px(2)+s2_v(2)+
+     .              s2_u(2),s2_px(3)+s2_v(3)+s2_u(3)    
+        write(12,*) s2_px(1)+s2_u(1),s2_px(2)+s2_u(2),
+     .              s2_px(3)+s2_u(3)    
+c     
+        write(12,*) s2_px(1),s2_px(2),s2_px(3)
+c
+c        
+        close(11)
+        close(12)
+c
+c ab hier kommen die Strahlen
+c
+       call histinit(1,-.02,.02,50 )
+       call histinit(2,-.002,.002,50)
+c
+       do dp = -5.,10.,1.        
+c       do dp = 1,1      
+c  mono ist fixiert
+c
+        dpp = dp/3600.
+c        dpp = 4.5/3600.
+        Sum_Intensitaet = 0.
+        number_hits = 0
+c
+c  translation 1. Kristall
+c
+        xd(x) = 29278. 
+        xd(y) = 0.
+        xd(z) = 10.
+c
+c  erzeugen des 1. Spiegels (Laue)
+c
+        s1_px(x) = 0.
+        s1_px(y) = -5. 
+        s1_px(z) = -20.
+c
+        s1_v(x) = 0.
+        s1_v(y) = 10.
+        s1_v(z) = 0.
+c
+        s1_u(x) = 0.
+        s1_u(y) = 0.
+        s1_u(z) = 20.
+c 
+c  drehen des 1. kristall  
+c
+       t_surf =(bragg+dpp)*dtp
+       call matrix(0.0,1.0,0.0,t_surf,m_surf)
+       t_net =(bragg+270.+dpp)*dtp
+       call matrix(0.0,1.0,0.0,t_net,m_net)
+c
+        call vektor_kreuzprodukt(s1_u,s1_v,s1_n)
+        
+        call dreh(m_surf,s1_px,s1_px)
+        call dreh(m_surf,s1_v,s1_v)        
+        call dreh(m_surf,s1_u,s1_u)
+        call dreh(m_surf,s1_n,s1_surf)
+        call dreh(m_net,s1_n,s1_net)
+c 
+c  translation des aufpunkts
+c
+        call trans(xd,s1_px,s1_px)
+
+c 
+c --- hier gehts los
+c        
+         do i = 1,200000
+c       
+            call strahl_generieren(strahl_p0,strahl_a,lambda_x)
+            lambda = 1.66289  + (lambda_x-0.5)*1.e-3 !1.e-3
+c
+c --- Verteilung Protokollieren 
+c
+             call histogram(1,strahl_a(2))
+             call histogram(2,strahl_a(3))
+c blende 1
+            hit_it = flaechen_schnitt(1,strahl_p0,strahl_a,b1_px,
+     .            b1_v,b1_u,b1_n,neu0_p0,neu0_a,winkel)
+            if(hit_it.eq.no) goto 100 
+c blende 2
+            hit_it = flaechen_schnitt(1,neu0_p0,neu0_a,b2_px,
+     .            b2_v,b2_u,b2_n,neu1_p0,neu1_a,winkel)
+             if(hit_it.eq.no) goto 100 
+c blende 3
+            hit_it = flaechen_schnitt(1,neu1_p0,neu1_a,b2_px,
+     .            b2_v,b2_u,b2_n,neu2_p0,neu2_a,winkel)
+             if(hit_it.eq.no) goto 100 
+c
+c 1. monochromatorspiegel
+c
+            hit_it = flaechen_lb(neu2_p0,neu2_a,s1_px,
+     .            s1_v,s1_u,s1_surf,s1_net,neu3_p0,neu3_a,winkel)
+            if(hit_it.eq.no) goto 100 
+            intensitaet = 1.*reflex(2.,2.,0.,lambda,winkel,0.,ilaue,.7)
+            
+c            if(intensitaet .eq. 0.) goto 100
+c
+c 2. monochromatorspiegel
+c
+            hit_it = flaechen_schnitt(2,neu3_p0,neu3_a,s2_px,
+     .            s2_v,s2_u,s2_n,neu4_p0,neu4_a,winkel)
+            if(hit_it.eq.no) goto 100 
+            intensitaet = intensitaet*
+     .        reflex(2.,2.,0.,lambda,winkel,0.,ibragg,10.)
+
+            if(intensitaet .eq. 0. ) goto 100
+c blende 4
+            hit_it = flaechen_schnitt(1,neu4_p0,neu4_a,b4_px,
+     .            b4_v,b4_u,b4_n,neu5_p0,neu5_a,winkel)
+             if(hit_it.eq.no) goto 100
+             write(22,*) neu2_a(2),neu2_a(3),neu5_a(2),neu5_a(3)
+c
+              Sum_Intensitaet = Sum_Intensitaet + 
+     .                                Intensitaet
+              number_hits = number_hits + 1
+c
+100      continue
+c        
+	 end do
+c
+c         write(6,*) dp
+         write(30,111) dp,bragg+dpp,Sum_intensitaet,
+     .                 number_hits
+        end do
+        close(30)
+        close(22)
+c
+c --- ausgaben der Verteilungen 
+c
+        call histowrite(1,'h_ver_s.dat')
+        call histowrite(2,'v_ver_s.dat')
+c        
+	end
+	
+
+        

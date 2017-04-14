@@ -1,0 +1,19 @@
+CFLAGS = -O4  -funroll-loops 
+
+f77FLAGS = -r8R
+
+.c.o:
+	gcc $(CFLAGS) -c $<
+
+.f.c:
+	f2c $(f77FLAGS) $<
+
+O = dev_test.o strahl.o gasdev.o histlib.o 
+
+L = -lf2c -lm -lc 
+
+main : $(O)
+	gcc -o dev_test $(O) $(L)
+
+# DEPENDENCIES
+

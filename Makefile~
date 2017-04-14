@@ -1,0 +1,24 @@
+#
+# --- toms fortran makefile 
+#
+CFLAGS = -O4   
+
+f77FLAGS = -r8R
+
+.c.o:
+	gcc $(CFLAGS) -c $<
+
+.f.c:
+	f2c $(f77FLAGS) $<
+
+O = ray_laue_bragg.o raytools.o dreh.o strahl.o gasdev.o ran3.o \
+    histlib.o dyth2.o gtheta.o c.o myeb.o roots.o bragg.o \
+    plin8.o blc8.o blr8.o schnitt.o 
+
+L = -lf2c -lm -lc 
+
+main : $(O)
+	gcc -o ray $(O) $(L)
+
+# DEPENDENCIES
+
